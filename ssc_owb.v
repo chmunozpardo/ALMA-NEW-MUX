@@ -3,14 +3,14 @@
 module ssc_owb #
   (
     // Users to add parameters here
-    parameter PORT_SIZE = 2,
+    parameter PORT_SIZE = 25,
 
     // User parameters ends
     // Do not modify the parameters beyond this line
 
     // Parameters of Axi Slave Bus Interface S_AXIL
     parameter integer C_S_AXIL_DATA_WIDTH = 32,
-    parameter integer C_S_AXIL_ADDR_WIDTH = 6
+    parameter integer C_S_AXIL_ADDR_WIDTH = 10
   )
   (
     // Users to add ports here
@@ -54,7 +54,8 @@ module ssc_owb #
 // Instantiation of Axi Bus Interface S_AXIL
   ssc_owb_S_AXIL # (
     .C_S_AXI_DATA_WIDTH(C_S_AXIL_DATA_WIDTH),
-    .C_S_AXI_ADDR_WIDTH(C_S_AXIL_ADDR_WIDTH)
+    .C_S_AXI_ADDR_WIDTH(C_S_AXIL_ADDR_WIDTH),
+    .PORT_SIZE(PORT_SIZE)
   ) ssc_owb_S_AXIL_inst (
     .S_AXI_ACLK(s_axil_aclk_buf),
     .S_AXI_ARESETN(s_axil_aresetn),
@@ -82,7 +83,6 @@ module ssc_owb #
     .OWB_OUT(OWB_OUT),
     .OWB_IN(OWB_IN),
     .portDir(portDir),
-    .sscPort(sscPort),
     .sscSync1(sscSync1),
     .sscClk1(sscClk1),
     .sscData1In(sscData1In),
@@ -91,10 +91,12 @@ module ssc_owb #
 
   // Add user logic here
 
-  wire [PORT_SIZE-1:0] sscSyncN;
-  wire [PORT_SIZE-1:0] sscClkN;
-  wire [PORT_SIZE-1:0] sscDataNOut;
-  wire [PORT_SIZE-1:0] sscDataNIn;
+  wire [PORT_SIZE-1:0] portDir;
+  wire [PORT_SIZE-1:0] sscSync1;
+  wire [PORT_SIZE-1:0] sscClk1;
+
+  wire [PORT_SIZE-1:0] sscData1In;
+  wire [PORT_SIZE-1:0] sscData1Out;
 
   clk_10mhz clk_10mhz (
     .clk_out1(s_axil_aclk_buf), // Clock out ports
@@ -104,56 +106,40 @@ module ssc_owb #
     .clk_in1(s_axil_aclk)       // Clock in ports
   );
 
-  port_select #(
-    .PORT_SIZE(PORT_SIZE)
-  ) port_select_inst (
-    .sscPort(sscPort),
-    .sscSync1(sscSync1),
-    .sscClk1(sscClk1),
-    .sscData1Out(sscData1Out),
-    .sscData1In(sscData1In),
-
-    .sscSyncN(sscSyncN),
-    .sscClkN(sscClkN),
-    .sscDataNOut(sscDataNOut),
-    .sscDataNIn(sscDataNIn)
-  );
-
-
   generate genvar i;
-    for(i = 0; i < PORT_SIZE; i = i + 1)
-    begin: port_generation
-      OBUFDS # (
-        .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
-        .SLEW("SLOW")           // Specify the output slew rate
-      ) OBUFDS_sync (
-        .O(sscSyncN_p[i]),      // Diff_p output (connect directly to top-level port)
-        .OB(sscSyncN_n[i]),     // Diff_n output (connect directly to top-level port)
-        .I(sscSyncN[i])         // Buffer input
-      );
-
-      OBUFDS # (
-        .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
-        .SLEW("SLOW")           // Specify the output slew rate
-      ) OBUFDS_clk (
-        .O(sscClkN_p[i]),       // Diff_p output (connect directly to top-level port)
-        .OB(sscClkN_n[i]),      // Diff_n output (connect directly to top-level port)
-        .I(sscClkN[i])          // Buffer input
-      );
-
-      IOBUFDS # (
-        .DIFF_TERM("FALSE"),    // Differential Termination ("TRUE"/"FALSE")
-        .IBUF_LOW_PWR("FALSE"), // Low Power - "TRUE", High Performance = "FALSE"
-        .IOSTANDARD("DEFAULT"), // Specify the I/O standard
-        .SLEW("SLOW")           // Specify the output slew rate
-      ) IOBUFDS_data (
-        .O(sscDataNIn[i]),      // Buffer output
-        .IO(sscDataN_p[i]),     // Diff_p inout (connect directly to top-level port)
-        .IOB(sscDataN_n[i]),    // Diff_n inout (connect directly to top-level port)
-        .I(sscDataNOut[i]),     // Buffer input
-        .T(~portDir)            // 3-state enable input, high=input, low=output
+  for(i = 0; i < PORT_SIZE; i = i + 1)
+  begin: port_generation
+    OBUFDS # (
+      .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
+      .SLEW("SLOW")           // Specify the output slew rate
+    ) OBUFDS_sync (
+      .O(sscSyncN_p[i]),      // Diff_p output (connect directly to top-level port)
+      .OB(sscSyncN_n[i]),     // Diff_n output (connect directly to top-level port)
+      .I(sscSync1[i])         // Buffer input
     );
-    end
+
+    OBUFDS # (
+      .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
+      .SLEW("SLOW")           // Specify the output slew rate
+    ) OBUFDS_clk (
+      .O(sscClkN_p[i]),       // Diff_p output (connect directly to top-level port)
+      .OB(sscClkN_n[i]),      // Diff_n output (connect directly to top-level port)
+      .I(sscClk1[i])          // Buffer input
+    );
+
+    IOBUFDS # (
+      .DIFF_TERM("FALSE"),    // Differential Termination ("TRUE"/"FALSE")
+      .IBUF_LOW_PWR("FALSE"), // Low Power - "TRUE", High Performance = "FALSE"
+      .IOSTANDARD("DEFAULT"), // Specify the I/O standard
+      .SLEW("SLOW")           // Specify the output slew rate
+    ) IOBUFDS_data (
+      .O(sscData1In[i]),      // Buffer output
+      .IO(sscDataN_p[i]),     // Diff_p inout (connect directly to top-level port)
+      .IOB(sscDataN_n[i]),    // Diff_n inout (connect directly to top-level port)
+      .I(sscData1Out[i]),     // Buffer input
+      .T(~portDir[i])            // 3-state enable input, high=input, low=output
+  );
+  end
   endgenerate
 
   IOBUF # (
