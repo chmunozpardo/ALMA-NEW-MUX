@@ -15,13 +15,24 @@ module counter #
   );
 
   reg [WIDTH-1:0] intData = 0;
+  reg [WIDTH-1:0] dataSize = 0;
 
-  assign busy = intData ? `BUSY : `DONE;
+  assign busy = (intData == dataSize) ? `DONE : `BUSY;
 
-  always @(posedge CLK)
+  always @(posedge loadData)
+  begin
     if (loadData)
-      intData <= dataIn;
-    else if (clockEnable && busy)
-      intData <= intData - 1;
+    begin
+      dataSize <= dataIn;
+    end
+  end
+
+  always @(posedge CLK, negedge clockEnable)
+  begin
+    if (!clockEnable)
+      intData <= 0;
+    else if (intData < dataSize)
+      intData <= intData + 1;
+  end
 
 endmodule

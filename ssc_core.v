@@ -1,14 +1,11 @@
 // State machine to clock out the data
 
 // A block of defines for the SSC state machine
-`define statesNo            7
-`define SSC_IDLE            7'b0000001
-`define SSC_SEND_CMD        7'b0000010
-`define SSC_LOAD_DATA_OUT   7'b0000100
-`define SSC_SEND_DATA       7'b0001000
-`define SSC_LOAD_DATA_IN    7'b0010000
-`define SSC_READ_DATA       7'b0100000
-`define SSC_READ_DATA_TX    7'b1000000
+`define statesNo            4
+`define SSC_IDLE            2'b00
+`define SSC_SEND_CMD        2'b01
+`define SSC_SEND_DATA       2'b10
+`define SSC_READ_DATA       2'b11
 
 `define ENABLE      1'b1
 `define DISABLE     1'b0
@@ -33,6 +30,7 @@ module ssc_core
     input       sscDir,
     input [5:0] sscDataLength,
     input [4:0] sscCommand,
+    input [4:0] sscClkDivider,
     input       sscGo,
 
     output     sscClk1,
@@ -49,7 +47,11 @@ module ssc_core
 
   reg [`statesNo-1:0] currentState = `SSC_IDLE;
 
-  reg  sscClk1Enable;
+  reg  sscClk1Enable = `DISABLE;
+  reg  sscClkData1Enable = `DISABLE;
+
+  wire CLK_DATA;
+  wire CLK_REG;
 
   reg  sscCmdCntLoad;
   reg  sscCmdCntEnable;
@@ -59,15 +61,21 @@ module ssc_core
   reg  sscCmdSREnable;
   wire sscCmdSROut;
 
-  reg  sscDataCntLoad;
-  reg  sscDataCntEnable;
-  wire sscDataCntBusy;
+  reg  sscDataOutCntLoad;
+  reg  sscDataOutCntEnable;
+  wire sscDataOutCntBusy;
 
-  reg  sscDataSRLoad;
+  reg  sscDataInCntLoad;
+  reg  sscDataInCntEnable;
+  wire sscDataInCntBusy;
+
+  reg  sscDataSRInEnable;
+  reg  sscDataSRInReset = `HIGH;
+
+  reg  sscDataSROutLoad;
   reg  sscDataSROutEnable;
   wire sscDataSROut;
 
-  reg  sscDataSRInEnable;
   reg  sscDataSelect;
 
   wire [47:0] intWSscData;
@@ -76,7 +84,7 @@ module ssc_core
   assign sscData1Out = ((sscDataSelect == `CMD) ? sscCmdSROut : sscDataSROut);
 
   // Enable the SSC clock. The CLK is idle high.
-  assign sscClk1 = sscClk1Enable ? CLK : `HIGH;
+  assign sscClk1 = sscClk1Enable ? CLK : (sscClkData1Enable ? CLK_DATA : `HIGH);
 
   // Realign the data for writing: when the data is stored in sscData it is right-align msb
   assign intWSscData = sscDataIn << (48 - sscDataLength);
@@ -89,80 +97,91 @@ module ssc_core
       begin: idleState
         // Load command
         if (sscGo)
-          begin: loadCommand
-            // Signal that the SSC is busy
-            sscBusy = `BUSY;
+        begin: loadCommand
+          // Signal that the SSC is busy
+          sscBusy = `BUSY;
 
-            // Sync line is active indicating the beginning of a transmission
-            sscSync1 = `LOW;
+          // Sync line is active indicating the beginning of a transmission
+          sscSync1 = `LOW;
 
-            // The SSC clock is disable
-            sscClk1Enable = `DISABLE;
+          // The SSC clock is disable
+          sscClk1Enable = `DISABLE;
+          sscClkData1Enable = `DISABLE;
 
-            // The command counter is loading the data
-            sscCmdCntLoad = `LOAD;
-            sscCmdCntEnable = `DISABLE;
+          // The command counter is loading the data
+          sscCmdCntLoad = `LOAD;
+          sscCmdCntEnable = `DISABLE;
 
-            // The command shift register is loading the data
-            sscCmdSRLoad = `LOAD;
-            sscCmdSREnable = `DISABLE;
+          // The command shift register is loading the data
+          sscCmdSRLoad = `LOAD;
+          sscCmdSREnable = `DISABLE;
 
-            // The data counter is disable
-            sscDataCntLoad = `DONE;
-            sscDataCntEnable = `DISABLE;
+          // The data out counter is disable
+          sscDataOutCntLoad = `DONE;
+          sscDataOutCntEnable = `DISABLE;
 
-            // The data out shift register is disable
-            sscDataSRLoad = `DONE;
-            sscDataSROutEnable = `DISABLE;
+          // The data in counter is disable
+          sscDataInCntLoad = `DONE;
+          sscDataInCntEnable = `DISABLE;
 
-            // The data in shift register is disable
-            sscDataSRInEnable = `DISABLE;
+          // The data out shift register is disable
+          sscDataSROutLoad = `DONE;
+          sscDataSROutEnable = `DISABLE;
 
-            // The direction is defaulted to WRITE
-            portDir = `WRITE;
-            // The selection between CMD and DATA for the output is dont'care
-            // as bus is not enabled yet
-            sscDataSelect = 1'bx;
+          // The data in shift register is disable
+          sscDataSRInEnable = `DISABLE;
+          sscDataSRInReset = `LOW;
 
-            // Next state
-            currentState = `SSC_SEND_CMD;
-          end
+          // The direction is defaulted to WRITE
+          portDir = `WRITE;
+          // The selection between CMD and DATA for the output is dont'care
+          // as bus is not enabled yet
+          sscDataSelect = 1'bx;
+
+          // Next state
+          currentState = `SSC_SEND_CMD;
+        end
         else
-          begin: stayIdle
-            // Signal that the SSC is idle
-            sscBusy = `DONE;
+        begin: stayIdle
+          // Signal that the SSC is idle
+          sscBusy = `DONE;
 
-            // Sync line is idle high
-            sscSync1 = `HIGH;
+          // Sync line is idle high
+          sscSync1 = `HIGH;
 
-            // The SSC clock is disable
-            sscClk1Enable = `DISABLE;
+          // The SSC clock is disable
+          sscClk1Enable = `DISABLE;
+          sscClkData1Enable = `DISABLE;
 
-            // The command counter is disable
-            sscCmdCntLoad = `DONE;
-            sscCmdCntEnable = `DISABLE;
+          // The command counter is disable
+          sscCmdCntLoad = `DONE;
+          sscCmdCntEnable = `DISABLE;
 
-            // The command shift register is disable
-            sscCmdSRLoad = `DONE;
-            sscCmdSREnable = `DISABLE;
+          // The command shift register is disable
+          sscCmdSRLoad = `DONE;
+          sscCmdSREnable = `DISABLE;
 
-            // The data counter is disable
-            sscDataCntLoad = `DONE;
-            sscDataCntEnable = `DISABLE;
+          // The data out counter is disable
+          sscDataOutCntLoad = `DONE;
+          sscDataOutCntEnable = `DISABLE;
 
-            // The data out shift register is disable
-            sscDataSRLoad = `DONE;
-            sscDataSROutEnable = `DISABLE;
+          // The data in counter is disable
+          sscDataInCntLoad = `DONE;
+          sscDataInCntEnable = `DISABLE;
 
-            // The data in shift register is disable
-            sscDataSRInEnable = `DISABLE;
+          // The data out shift register is disable
+          sscDataSROutLoad = `DONE;
+          sscDataSROutEnable = `DISABLE;
 
-            // The direction is defaulted to WRITE
-            portDir = `WRITE;
-            // The selection between CMD and DATA for the output is dont'care
-            // as bus is not enabled yet
-            sscDataSelect = 1'bx;
-          end
+          // The data in shift register is disable
+          sscDataSRInEnable = `DISABLE;
+
+          // The direction is defaulted to WRITE
+          portDir = `WRITE;
+          // The selection between CMD and DATA for the output is dont'care
+          // as bus is not enabled yet
+          sscDataSelect = 1'bx;
+        end
       end
       `SSC_SEND_CMD:
       begin: sendCommand
@@ -174,6 +193,7 @@ module ssc_core
 
         // The SSC clock is enable
         sscClk1Enable = `ENABLE;
+        sscClkData1Enable = `DISABLE;
 
         // The command counter register is enable
         sscCmdCntLoad = `DONE;
@@ -183,16 +203,21 @@ module ssc_core
         sscCmdSRLoad = `DONE;
         sscCmdSREnable = `ENABLE;
 
-        // The data counter is disable
-        sscDataCntLoad = `DONE;
-        sscDataCntEnable = `DISABLE;
+        // The data out counter is disable
+        sscDataOutCntLoad = `DONE;
+        sscDataOutCntEnable = `DISABLE;
+
+        // The data in counter is disable
+        sscDataInCntLoad = `DONE;
+        sscDataInCntEnable = `DISABLE;
 
         // The data out shift register is disable
-        sscDataSRLoad = `DONE;
+        sscDataSROutLoad = `DONE;
         sscDataSROutEnable = `DISABLE;
 
         // The data in shift register is disable
         sscDataSRInEnable = `DISABLE;
+        sscDataSRInReset = `HIGH;
 
         // The direction is defaulted to WRITE
         portDir = `WRITE;
@@ -201,51 +226,38 @@ module ssc_core
 
         // Next state
         if (~sscCmdCntBusy)
-          begin: doneWithCmd
-            if (sscDataLength)
-              currentState = (sscDir == `WRITE) ? `SSC_LOAD_DATA_OUT : `SSC_LOAD_DATA_IN;
+        begin: doneWithCmd
+          if (sscDataLength)
+          begin
+            if (sscDir == `WRITE)
+            begin
+              currentState = `SSC_SEND_DATA;
+              sscDataOutCntLoad = `LOAD;
+              sscDataOutCntEnable = `ENABLE;
+
+              // The data out shift register is clocking out the data
+              sscDataSROutLoad = `LOAD;
+              sscDataSROutEnable = `ENABLE;
+              portDir = `WRITE;
+            end
             else
-              currentState = `SSC_IDLE;
+            begin
+              currentState = `SSC_READ_DATA;
+              sscDataInCntLoad = `LOAD;
+              sscDataInCntEnable = `DISABLE;
+
+              // The data out shift register is clocking out the data
+              sscDataSRInEnable = `DISABLE;
+              sscClkData1Enable = `ENABLE;
+              portDir = `READ;
+            end
+            // The SSC clock is disable
+            sscClk1Enable = `DISABLE;
+
           end
-      end
-      `SSC_LOAD_DATA_OUT:
-      begin: loadData
-        // Signal that the SSC is busy
-        sscBusy = `BUSY;
-
-        // Sync line is active indicating the beginning of a transmission
-        sscSync1 = `LOW;
-
-        // The SSC clock is disable
-        sscClk1Enable = `DISABLE;
-
-        // The command counter is disable
-        sscCmdCntLoad = `DONE;
-        sscCmdCntEnable = `DISABLE;
-
-        // The command shift register is disable
-        sscCmdSRLoad = `DONE;
-        sscCmdSREnable = `DISABLE;
-
-        // The data counter is loading the data
-        sscDataCntLoad = `LOAD;
-        sscDataCntEnable = `DISABLE;
-
-        // The data out shift register is loading the data
-        sscDataSRLoad = `LOAD;
-        sscDataSROutEnable = `DISABLE;
-
-        // The data in shift register is disable
-        sscDataSRInEnable = `DISABLE;
-
-        // The direction is defaulted to WRITE
-        portDir = `WRITE;
-        // The selection between CMD and DATA for the output is dont'care
-        // as bus is not enabled yet
-        sscDataSelect = 1'bx;
-
-        // Next state
-        currentState = `SSC_SEND_DATA;
+          else
+            currentState = `SSC_IDLE;
+        end
       end
       `SSC_SEND_DATA:
       begin: sendDataOut
@@ -257,6 +269,7 @@ module ssc_core
 
         // The SSC clock is enable
         sscClk1Enable = `ENABLE;
+        sscClkData1Enable = `DISABLE;
 
         // The command counter is disable
         sscCmdCntLoad = `DONE;
@@ -267,11 +280,11 @@ module ssc_core
         sscCmdSREnable = `DISABLE;
 
         // The data counter is enable
-        sscDataCntLoad = `DONE;
-        sscDataCntEnable = `ENABLE;
+        sscDataOutCntLoad = `DONE;
+        sscDataOutCntEnable = `ENABLE;
 
         // The data out shift register is clocking out the data
-        sscDataSRLoad = `DONE;
+        sscDataSROutLoad = `DONE;
         sscDataSROutEnable = `ENABLE;
 
         // The data in shift register is disable
@@ -283,47 +296,11 @@ module ssc_core
         sscDataSelect = `DATA;
 
         // Next state
-        if (~sscDataCntBusy)
+        if (~sscDataOutCntBusy)
+        begin
           currentState = `SSC_IDLE;
-      end
-      `SSC_LOAD_DATA_IN:
-      begin: loadDataIn
-        // Signal that the SSC is busy
-        sscBusy = `BUSY;
 
-        // Sync line is active indicating the beginning of a transmission
-        sscSync1 = `LOW;
-
-        // The SSC clock is disable
-        sscClk1Enable = `DISABLE;
-
-        // The command counter is disable
-        sscCmdCntLoad = `DONE;
-        sscCmdCntEnable = `DISABLE;
-
-        // The command shift register is disable
-        sscCmdSRLoad = `DONE;
-        sscCmdSREnable = `DISABLE;
-
-        // The data counter is loading the data
-        sscDataCntLoad = `LOAD;
-        sscDataCntEnable = `DISABLE;
-
-        // The data out shift register is disable
-        sscDataSRLoad = `DONE;
-        sscDataSROutEnable = `DISABLE;
-
-        // The data in shift register is disable
-        sscDataSRInEnable = `DISABLE;
-
-        // Turn direction is defaulted to READ
-        portDir = `READ;
-        // The selection between CMD and DATA for the output is dont'care
-        // as the bus used by the slave
-        sscDataSelect = 1'bx;
-
-        // Next state
-        currentState = `SSC_READ_DATA;
+        end
       end
       `SSC_READ_DATA:
       begin: readDataIn
@@ -334,7 +311,8 @@ module ssc_core
         sscSync1 = `LOW;
 
         // The SSC clock is enable
-        sscClk1Enable = `ENABLE;
+        sscClk1Enable = `DISABLE;
+        sscClkData1Enable = `ENABLE;
 
         // The command counter is disable
         sscCmdCntLoad = `DONE;
@@ -345,11 +323,15 @@ module ssc_core
         sscCmdSREnable = `DISABLE;
 
         // The data counter is enable
-        sscDataCntLoad = `DONE;
-        sscDataCntEnable = `ENABLE;
+        sscDataOutCntLoad = `DONE;
+        sscDataOutCntEnable = `DISABLE;
+
+        // The data counter is enable
+        sscDataInCntLoad = `DONE;
+        sscDataInCntEnable = `ENABLE;
 
         // The data out shift register is disable
-        sscDataSRLoad = `DONE;
+        sscDataSROutLoad = `DONE;
         sscDataSROutEnable = `DISABLE;
 
         // The data in shift register is clocking in the data
@@ -362,46 +344,17 @@ module ssc_core
         sscDataSelect = 1'bx;
 
         // Next state
-        if (~sscDataCntBusy)
-          currentState = `SSC_READ_DATA_TX;
-      end
-      `SSC_READ_DATA_TX:
-      begin: readDataTx
-        // Signal that the SSC is idle
-        sscBusy = `DONE;
-
-        // Sync line is idle high
-        sscSync1 = `HIGH;
-
-        // The SSC clock is disable
-        sscClk1Enable = `DISABLE;
-
-        // The command counter is disable
-        sscCmdCntLoad = `DONE;
-        sscCmdCntEnable = `DISABLE;
-
-        // The command shift register is disable
-        sscCmdSRLoad = `DONE;
-        sscCmdSREnable = `DISABLE;
-
-        // The data counter is disable
-        sscDataCntLoad = `DONE;
-        sscDataCntEnable = `DISABLE;
-
-        // The data out shift register is disable
-        sscDataSRLoad = `DONE;
-        sscDataSROutEnable = `DISABLE;
-
-        // The data in shift register is disable
-        sscDataSRInEnable = `DISABLE;
-        // The direction is defaulted to WRITE
-        portDir = `WRITE;
-        // The selection between CMD and DATA for the output is dont'care
-        // as bus is not enabled yet
-        sscDataSelect = 1'bx;
-
-        // Next state
-        currentState = `SSC_IDLE;
+        if (~sscDataInCntBusy)
+        begin
+          currentState = `SSC_IDLE;
+          sscDataInCntEnable = `DISABLE;
+          sscDataSRInEnable = `DISABLE;
+          sscClk1Enable = `DISABLE;
+          sscClkData1Enable = `DISABLE;
+          portDir = `WRITE;
+          sscSync1 = `HIGH;
+          sscBusy = `DONE;
+        end
       end
       default:
       begin
@@ -409,12 +362,13 @@ module ssc_core
         sscSync1 = `HIGH;
         sscCmdCntLoad = `DONE;
         sscCmdSRLoad = `DONE;
-        sscDataCntLoad = `DONE;
-        sscDataSRLoad = `DONE;
+        sscDataOutCntLoad = `DONE;
+        sscDataSROutLoad = `DONE;
         sscClk1Enable = `DISABLE;
+        sscClkData1Enable = `DISABLE;
         sscCmdCntEnable = `DISABLE;
         sscCmdSREnable = `DISABLE;
-        sscDataCntEnable = `DISABLE;
+        sscDataOutCntEnable = `DISABLE;
         sscDataSROutEnable = `DISABLE;
         sscDataSRInEnable = `DISABLE;
         sscDataSelect = 1'bx;
@@ -427,55 +381,77 @@ module ssc_core
 
   // instantiation of the command shift register
   shift_reg_out # (
-    .WIDTH(5)
-  ) CMD_SR_OUT (
-    .CLK(CLK),
-    .dataIn(sscCommand),
-    .loadData(sscCmdSRLoad),
-    .clockEnable(sscCmdSREnable),
-    .dataOut(sscCmdSROut)
-  );
+                  .WIDTH(5)
+                ) CMD_SR_OUT (
+                  .CLK(CLK),
+                  .dataIn(sscCommand),
+                  .loadData(sscCmdSRLoad),
+                  .clockEnable(sscCmdSREnable),
+                  .dataOut(sscCmdSROut)
+                );
 
   // instantiation of the command counter
   counter # (
-    .WIDTH(3)
-  ) CMD_CNT (
-    .CLK(CLK),
-    .dataIn(3'd5 - 3'd1),
-    .loadData(sscCmdCntLoad),
-    .clockEnable(sscCmdCntEnable),
-    .busy(sscCmdCntBusy)
-  );
+            .WIDTH(3)
+          ) CMD_CNT (
+            .CLK(CLK),
+            .dataIn(3'd5),
+            .loadData(sscCmdCntLoad),
+            .clockEnable(sscCmdCntEnable),
+            .busy(sscCmdCntBusy)
+          );
 
   // instantiation of the data write shift register
   shift_reg_out # (
-    .WIDTH(48)
-  ) DATA_SR_OUT (
-    .CLK(CLK),
-    .dataIn(intWSscData),
-    .loadData(sscDataSRLoad),
-    .clockEnable(sscDataSROutEnable),
-    .dataOut(sscDataSROut)
-  );
+                  .WIDTH(48)
+                ) DATA_SR_OUT (
+                  .CLK(CLK),
+                  .dataIn(intWSscData),
+                  .loadData(sscDataSROutLoad),
+                  .clockEnable(sscDataSROutEnable),
+                  .dataOut(sscDataSROut)
+                );
 
   // instantiation of the data counter
   counter # (
-    .WIDTH(6)
-  ) DATA_CNT (
-    .CLK(CLK),
-    .dataIn(sscDataLength - 6'd1),
-    .loadData(sscDataCntLoad),
-    .clockEnable(sscDataCntEnable),
-    .busy(sscDataCntBusy)
-  );
+            .WIDTH(6)
+          ) DATA_CNT (
+            .CLK(CLK),
+            .dataIn(sscDataLength),
+            .loadData(sscDataOutCntLoad),
+            .clockEnable(sscDataOutCntEnable),
+            .busy(sscDataOutCntBusy)
+          );
+
+  clk_divider clk_divider (
+                .clk_in(CLK),
+                .N_div(sscClkDivider[3:0]),
+                .invert(sscClkDivider[4]),
+                .clockEnable(sscDataSRInEnable),
+                .clk_out(CLK_DATA),
+                .clk_out_reg(CLK_REG)
+              );
 
   // instantiation of the data read shift register
   shift_reg_in # (
-    .WIDTH(48)
-  ) DATA_SR_IN (
-    .CLK(CLK),
-    .dataIn(sscData1In),
-    .clockEnable(sscDataSRInEnable),
-    .dataOut(sscDataOut)
-  );
+                 .WIDTH(48)
+               ) DATA_SR_IN (
+                 .CLK(CLK_REG),
+                 .dataIn(sscData1In),
+                 .clockEnable(sscDataSRInEnable),
+                 .reset_n(sscDataSRInReset),
+                 .dataOut(sscDataOut)
+               );
+
+  // instantiation of the data counter
+  counter # (
+            .WIDTH(6)
+          ) DATA_CNT_IN (
+            .CLK(CLK_REG),
+            .dataIn(sscDataLength),
+            .loadData(sscDataInCntLoad),
+            .clockEnable(sscDataInCntEnable),
+            .busy(sscDataInCntBusy)
+          );
+
 endmodule
