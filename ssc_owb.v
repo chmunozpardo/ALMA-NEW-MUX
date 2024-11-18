@@ -98,7 +98,7 @@ module ssc_owb #
   wire [PORT_SIZE-1:0] sscData1In;
   wire [PORT_SIZE-1:0] sscData1Out;
 
-  clk_10mhz clk_10mhz (
+  clk_10mhz clk_10mhz(
               .clk_out1(s_axil_aclk_buf), // Clock out ports
               .clk_out2(clk_5mhz_buf),    // Clock out ports
               .reset(!s_axil_aresetn),    // Status and control signals

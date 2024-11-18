@@ -132,13 +132,14 @@ module ssc_owb_S_AXIL #
   //----------------------------------------------
   //-- Signals for user logic register space example
   //------------------------------------------------
-  reg [C_S_AXI_DATA_WIDTH-1:0] statusReg       [PORT_SIZE-1:0];
-  reg [C_S_AXI_DATA_WIDTH-1:0] sscLengthReg    [PORT_SIZE-1:0];
-  reg [C_S_AXI_DATA_WIDTH-1:0] sscCommandReg   [PORT_SIZE-1:0];
-  reg [C_S_AXI_DATA_WIDTH-1:0] sscWriteReg     [PORT_SIZE-1:0];
-  reg [C_S_AXI_DATA_WIDTH-1:0] sscReadUpperReg [PORT_SIZE-1:0];
-  reg [C_S_AXI_DATA_WIDTH-1:0] sscReadLowerReg [PORT_SIZE-1:0];
-  reg [C_S_AXI_DATA_WIDTH-1:0] sscClkDivider   [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] statusReg        [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscLengthReg     [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscCommandReg    [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscWriteUpperReg [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscWriteLowerReg [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscReadUpperReg  [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscReadLowerReg  [PORT_SIZE-1:0];
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscClkDivider    [PORT_SIZE-1:0];
   reg [C_S_AXI_DATA_WIDTH-1:0] owmStatus;
   reg [C_S_AXI_DATA_WIDTH-1:0] owmAddress;
   reg [C_S_AXI_DATA_WIDTH-1:0] owmWriteReg;
@@ -268,7 +269,8 @@ module ssc_owb_S_AXIL #
         statusReg[port_index] <= 0;
         sscLengthReg[port_index] <= 0;
         sscCommandReg[port_index] <= 0;
-        sscWriteReg[port_index] <= 0;
+        sscWriteUpperReg[port_index] <= 0;
+        sscWriteLowerReg[port_index] <= 0;
         sscClkDivider[port_index] <= 0;
       end
       owmAddress <= 0;
@@ -328,13 +330,19 @@ module ssc_owb_S_AXIL #
               for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
                 if ( S_AXI_WSTRB[byte_index] == 1 )
                 begin
-                  sscWriteReg[aw_port_bits-1][(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+                  sscClkDivider[aw_port_bits-1][(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
                 end
-            3'h6:
+            3'h4:
               for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
                 if ( S_AXI_WSTRB[byte_index] == 1 )
                 begin
-                  sscClkDivider[aw_port_bits-1][(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+                  sscWriteLowerReg[aw_port_bits-1][(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+                end
+            3'h5:
+              for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+                if ( S_AXI_WSTRB[byte_index] == 1 )
+                begin
+                  sscWriteUpperReg[aw_port_bits-1][(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
                 end
             default:
               ;
@@ -347,7 +355,8 @@ module ssc_owb_S_AXIL #
             statusReg[port_index] <= 0;
             sscLengthReg[port_index] <= 0;
             sscCommandReg[port_index] <= 0;
-            sscWriteReg[port_index] <= 0;
+            sscWriteUpperReg[port_index] <= 0;
+            sscWriteLowerReg[port_index] <= 0;
             sscClkDivider[port_index] <= 0;
           end
           owmStatus <= owmStatus;
@@ -454,6 +463,7 @@ module ssc_owb_S_AXIL #
 
   wire [PORT_SIZE-1:0] sscBusy;
   wire [47:0]          sscReadOut [PORT_SIZE-1:0];
+  wire [47:0]          sscWriteReg [PORT_SIZE-1:0];
 
   reg  [PORT_SIZE-1:0] sscGo  = {PORT_SIZE{1'b0}};
   reg  [PORT_SIZE-1:0] sscDir = {PORT_SIZE{`WRITE}};
@@ -497,13 +507,15 @@ module ssc_owb_S_AXIL #
         3'h2:
           reg_data_out <= sscCommandReg[ar_port_bits-1];
         3'h3:
-          reg_data_out <= sscWriteReg[ar_port_bits-1];
-        3'h4:
-          reg_data_out <= sscReadLowerReg[ar_port_bits-1];
-        3'h5:
-          reg_data_out <= sscReadUpperReg[ar_port_bits-1];
-        3'h6:
           reg_data_out <= sscClkDivider[ar_port_bits-1];
+        3'h4:
+          reg_data_out <= sscWriteLowerReg[ar_port_bits-1];
+        3'h5:
+          reg_data_out <= sscWriteUpperReg[ar_port_bits-1];
+        3'h6:
+          reg_data_out <= sscReadLowerReg[ar_port_bits-1];
+        3'h7:
+          reg_data_out <= sscReadUpperReg[ar_port_bits-1];
         default:
           reg_data_out <= 0;
       endcase
@@ -534,8 +546,8 @@ module ssc_owb_S_AXIL #
   end
 
   // Add user logic here
-
-  generate genvar i;
+  genvar i;
+  generate
     for (i = 0; i < PORT_SIZE; i = i + 1)
     begin: ssc_read_generation
       always@(negedge sscBusy[i])
@@ -543,6 +555,13 @@ module ssc_owb_S_AXIL #
         sscReadLowerReg[i] <= sscReadOut[i][31:0];
         sscReadUpperReg[i] <= sscReadOut[i][47:32];
       end
+    end
+  endgenerate
+
+  generate
+    for (i = 0; i < PORT_SIZE; i = i + 1)
+    begin: ssc_write_generation
+      assign sscWriteReg[i] = {sscWriteUpperReg[i], sscWriteLowerReg[i]};
     end
   endgenerate
 
