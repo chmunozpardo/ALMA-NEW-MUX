@@ -42,7 +42,10 @@ module ssc_owb_S_AXIL #
 
     input wire  OWB_IN,
     output wire OWB_OUT,
+    output reg OWB_DIS,
     output wire DQ_CONTROL,
+
+    output wire sscTxRxControl,
 
     // User ports ends
     // Do not modify the ports beyond this line
@@ -144,6 +147,7 @@ module ssc_owb_S_AXIL #
   reg [C_S_AXI_DATA_WIDTH-1:0] owmAddress;
   reg [C_S_AXI_DATA_WIDTH-1:0] owmWriteReg;
   reg [C_S_AXI_DATA_WIDTH-1:0] owmReadReg;
+  reg [C_S_AXI_DATA_WIDTH-1:0] sscDataDriverControl;
   wire   slv_reg_rden;
   wire   slv_reg_wren;
   reg [C_S_AXI_DATA_WIDTH-1:0] reg_data_out;
@@ -301,6 +305,12 @@ module ssc_owb_S_AXIL #
                 begin
                   owmWriteReg[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
                 end
+            3'h4:
+              for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+                if ( S_AXI_WSTRB[byte_index] == 1 )
+                begin
+                  sscDataDriverControl[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+                end
             default:
               ;
           endcase
@@ -362,6 +372,7 @@ module ssc_owb_S_AXIL #
           owmStatus <= owmStatus;
           owmAddress <= owmAddress;
           owmWriteReg <= owmWriteReg;
+          sscDataDriverControl <= sscDataDriverControl;
         end
       end
     end
@@ -469,8 +480,10 @@ module ssc_owb_S_AXIL #
   reg  [PORT_SIZE-1:0] sscDir = {PORT_SIZE{`WRITE}};
 
   wire [7:0] owmReadOut;
-  wire       IORC = owmStatus[1];
-  wire       IOWC = owmStatus[0];
+  wire       IORC     = owmStatus[1];
+  wire       IOWC     = owmStatus[0];
+
+  assign sscTxRxControl = portDir[sscDataDriverControl];
 
 
   // Implement memory mapped register select and read logic generation
@@ -486,13 +499,15 @@ module ssc_owb_S_AXIL #
     begin
       case(ar_port_reg_bits)
         3'h0:
-          reg_data_out <= owmStatus;
+          reg_data_out <= {{C_S_AXI_DATA_WIDTH - 4{1'b0}}, MR, OWB_DIS, owmStatus[1], owmStatus[1]};
         3'h1:
           reg_data_out <= owmAddress;
         3'h2:
           reg_data_out <= owmWriteReg;
         3'h3:
           reg_data_out <= owmReadOut;
+        3'h4:
+          reg_data_out <= sscDataDriverControl;
         default:
           reg_data_out <= 0;
       endcase
@@ -646,6 +661,18 @@ module ssc_owb_S_AXIL #
     else
       MR <= `DISABLE;
   end
+
+  // A block to take care of the enable/disable of the external bus. The external
+  // bus is disabled by writing a 0 to the OWBEnable address.
+  always @(posedge CLK_50MHZ)
+  begin
+    if((~IOWC == `LOW) && (owmAddress == `OWBEnable) && (owmWriteReg == 16'h0000))
+      OWB_DIS <= `HIGH;
+    else if ((~IOWC == `LOW) && (owmAddress == `OWBEnable) && (owmWriteReg != 16'h0000))
+      OWB_DIS <= `LOW;
+  end
+
+
 
   one_wire_bus one_wire_bus (
                  .ADDRESS(owmAddress[2:0]),
